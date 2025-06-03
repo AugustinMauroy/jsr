@@ -505,8 +505,16 @@ interface RuntimeToken {
   value: true;
   raw: string;
 }
+interface ScoreToken {
+  kind: "score";
+  value: {
+    number: number;
+    operator: ">" | "<" | "=" | ">=" | "<=";
+  };
+  raw: string;
+}
 
-type Token = TextToken | ScopeToken | RuntimeToken;
+type Token = TextToken | ScopeToken | RuntimeToken | ScoreToken;
 
 function tokenizeFilter(search: string): Token[] {
   const tokens: Token[] = [];
@@ -525,6 +533,24 @@ function tokenizeFilter(search: string): Token[] {
         });
         continue;
       }
+    } else if (part.startsWith("score:")) {
+      const scorePart = part.slice(6);
+      const match = scorePart.match(
+        /^(>|<|=|>=|<=)?(\d+(\.\d+)?)$/,
+      );
+      if (match) {
+        const operator = (match[1] ?? "=") as "=" | ">" | "<" | ">=" | "<=";
+        
+        tokens.push({
+          kind: "score",
+          value: {
+            operator,
+            number: parseFloat(match[2]),
+          },
+          raw: part,
+        });
+        continue;
+      }
     }
 
     tokens.push({ kind: "text", value: part, raw: part });
@@ -535,9 +561,10 @@ function tokenizeFilter(search: string): Token[] {
 
 export function processFilter(
   search: string,
-): { query: string; where: Record<string, boolean | string> | undefined } {
-  const filters: [string, boolean | string][] = [];
+): { query: string; where: Record<string, Token["value"]> | undefined } {
+  const filters: Array<[Token["kind"], Token["value"]]> = [];
   let query = "";
+
   for (const part of tokenizeFilter(search)) {
     if (part.kind === "text") {
       query += part.value + " ";
@@ -545,7 +572,9 @@ export function processFilter(
       filters.push([part.kind, part.value]);
     }
   }
+  
   const where = Object.fromEntries(filters);
+
   return {
     query: query.trim(),
     where: filters.length === 0 ? undefined : where,
